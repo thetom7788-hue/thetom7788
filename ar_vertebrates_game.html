@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR เกมสัตว์มีกระดูกสันหลังและสัตว์ไม่มีกระดูกสันหลัง ป.4</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Prompt & Sarabun -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600;700;800&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            font-family: 'Prompt', 'Sarabun', sans-serif;
+            user-select: none;
+        }
+
+        /* Mirror video for natural AR hand interactions */
+        .mirror-video {
+            transform: scaleX(-1);
+        }
+
+        /* Custom Hover Progress Animation */
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(234, 179, 8, 0.6), inset 0 0 15px rgba(234, 179, 8, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(250, 204, 21, 0.9), inset 0 0 25px rgba(250, 204, 21, 0.7); }
+        }
+
+        .ar-active-zone {
+            animation: pulseGlow 1.5s infinite ease-in-out;
+        }
+
+        .floating-anim {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-12px) rotate(1.5deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+
+        /* Glassmorphism Styling */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .glass-light {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        /* Confetti Canvas */
+        #particleCanvas {
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen overflow-x-hidden flex flex-col justify-between">
+
+    <header class="w-full bg-slate-950/80 backdrop-blur border-b border-slate-800 py-3 px-4 md:px-8 flex justify-between items-center z-30 fixed top-0 left-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-gradient-to-tr from-emerald-500 to-teal-400 p-2.5 rounded-xl shadow-lg shadow-emerald-500/20">
+                <i class="fa-solid fa-hand-sparkles text-xl text-slate-950"></i>
+            </div>
+            <div>
+                <h1 class="text-lg md:text-xl font-bold bg-gradient-to-r from-emerald-400 via-teal-300 to-amber-300 bg-clip-text text-transparent leading-tight">
+                    AR สัตว์มีกระดูกสันหลัง & สัตว์ไม่มีกระดูกสันหลัง
+                </h1>
+                <p class="text-xs text-slate-400 font-normal">บทเรียนวิทยาศาสตร์ ชั้นประถมศึกษาปีที่ 4</p>
+            </div>
+        </div>
+
+        <!-- Controls Header -->
+        <div class="flex items-center gap-2 md:gap-4">
+            <button id="toggleAudioBtn" onclick="toggleAudio()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm flex items-center gap-2 transition">
+                <i id="audioIcon" class="fa-solid fa-volume-high text-emerald-400"></i>
+                <span class="hidden sm:inline">เสียงประกอบ</span>
+            </button>
+
+            <button id="toggleSpeechBtn" onclick="toggleSpeech()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm flex items-center gap-2 transition">
+                <i id="speechIcon" class="fa-solid fa-comment-dots text-amber-400"></i>
+                <span class="hidden sm:inline">เสียงอ่านชื่อ</span>
+            </button>
+
+            <button onclick="showLeaderboardModal()" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-sm font-semibold flex items-center gap-2 transition">
+                <i class="fa-solid fa-trophy text-amber-400"></i>
+                <span class="hidden sm:inline">สกอร์บอร์ด</span>
+            </button>
+
+            <button id="modeSwitchBtn" onclick="toggleInputMode()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium flex items-center gap-2 shadow-md transition">
+                <i id="modeIcon" class="fa-solid fa-camera text-xs"></i>
+                <span id="modeText" class="hidden sm:inline">โหมดฝ่ามือ AR</span>
+            </button>
+        </div>
+    </header>
+
+    <div id="startScreen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 overflow-y-auto pt-20">
+        <div class="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden my-auto">
+            
+            <!-- Cover Header Banner -->
+            <div class="relative rounded-2xl overflow-hidden mb-6 border border-emerald-500/30 group">
+                <img id="coverImg" 
+                     src="https://pic.in.th/image/ChatGPT-Image-31-%E0%B8%81.%E0%B8%84.-2569-14-42-14.Ns7O6D" 
+                     onerror="this.src='https://images.unsplash.com/photo-1534567153574-2b12153a87f0?q=80&w=1200&auto=format&fit=crop'"
+                     alt="ปกเกมสื่อการเรียนรู้วิทยาศาสตร์ ป.4" 
+                     class="w-full h-52 sm:h-64 object-cover group-hover:scale-105 transition duration-700">
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent flex flex-col justify-end p-5">
+                    <span class="px-3 py-1 bg-emerald-500/90 text-slate-950 text-xs font-bold rounded-full w-max mb-2">
+                        วิชาวิทยาศาสตร์และเทคโนโลยี ป.4
+                    </span>
+                    <h2 class="text-2xl sm:text-3xl font-extrabold text-white drop-shadow-md">
+                        สำรวจโลกสัตว์ด้วยฝ่ามือ AR ✋
+                    </h2>
+                </div>
+            </div>
+
+            <!-- Learning Objectives & Instructions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/60">
+                    <h3 class="text-amber-400 font-semibold mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-graduation-cap"></i> สิ่งที่จะได้เรียนรู้
+                    </h3>
+                    <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                        <li>จำแนกสัตว์เป็น <strong>สัตว์มีกระดูกสันหลัง</strong> และ <strong>สัตว์ไม่มีกระดูกสันหลัง</strong></li>
+                        <li>ลักษณะเด่นของสัตว์มีกระดูกสันหลัง 5 กลุ่ม (ปลา, สัตว์สะเทินน้ำสะเทินบก, สัตว์เลื้อยคลาน, สัตว์ปีก, สัตว์เลี้ยงลูกด้วยนม)</li>
+                        <li>ฝึกทักษะการสังเกตและการตัดสินใจผ่านเทคโนโลยี AR</li>
+                    </ul>
+                </div>
+
+                <div class="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/60">
+                    <h3 class="text-emerald-400 font-semibold mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-hand"></i> วิธีการเล่นด้วยฝ่ามือ
+                    </h3>
+                    <ol class="text-xs text-slate-300 space-y-1.5 list-decimal list-inside">
+                        <li>เปิดกล้องเว็บแคม ชูฝ่ามือขึ้นหน้ากล้อง</li>
+                        <li>ขยับฝ่ามือเพื่อควบคุม <strong>วงแหวนเวทมนตร์ (AR Pointer)</strong></li>
+                        <li>ทาบฝ่ามือบนคำตอบที่ต้องการค้างไว้ <strong>1.5 วินาที</strong> เพื่อส่งคำตอบ</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Game Mode Selection -->
+            <div class="mb-5 bg-slate-800/90 p-4 rounded-2xl border border-slate-700/80 text-left">
+                <label for="playerNameInput" class="block text-xs font-bold text-amber-400 mb-1.5 flex items-center gap-1.5">
+                    <i class="fa-solid fa-user"></i> ชื่อผู้เล่น / ชื่อนักเรียน (ชั้น ป.4):
+                </label>
+                <input type="text" id="playerNameInput" placeholder="พิมพ์ชื่อ-นามสกุล หรือชื่อเล่นที่นี่..." 
+                       class="w-full bg-slate-900 border border-slate-600 focus:border-emerald-400 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none transition">
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="startGame('sorting')" class="flex-1 py-3.5 px-5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold rounded-2xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-3 transition transform active:scale-95 text-base">
+                    <i class="fa-solid fa-play text-lg"></i>
+                    เริ่มโหมดคัดแยกสัตว์ (20 ข้อ)
+                </button>
+                <button onclick="startGame('quiz')" class="flex-1 py-3.5 px-5 bg-slate-800 hover:bg-slate-700 text-teal-300 font-semibold rounded-2xl border border-teal-500/30 flex items-center justify-center gap-3 transition transform active:scale-95 text-base">
+                    <i class="fa-solid fa-brain text-lg"></i>
+                    โหมดท้าทาย 5 กลุ่มย่อย (20 ข้อ)
+                </button>
+            </div>
+            
+            <p class="text-center text-xs text-slate-400 mt-4">
+                * สามารถสลับระหว่างโหมดกล้อง AR และเมาส์/หน้าจอสัมผัสได้ตลอดเวลา
+            </p>
+        </div>
+    </div>
+
+    <main class="flex-1 pt-20 pb-6 px-4 max-w-6xl w-full mx-auto flex flex-col justify-center relative">
+        
+        <!-- Score Bar & Progress Header -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-800/80 backdrop-blur p-3.5 rounded-2xl border border-slate-700 shadow-lg">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400 font-medium">ผู้เล่น:</span>
+                    <span id="displayPlayerName" class="text-sm font-bold text-emerald-300">ผู้เล่น</span>
+                </div>
+                <div class="h-5 w-px bg-slate-700"></div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400 font-medium">คะแนน:</span>
+                    <span id="scoreText" class="text-xl font-extrabold text-amber-400">0</span>
+                    <span class="text-xs text-slate-400">/ 20</span>
+                </div>
+                <div class="h-5 w-px bg-slate-700"></div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400 font-medium">คำถาม:</span>
+                    <span id="questionCountText" class="text-sm font-semibold text-emerald-400">1 / 20</span>
+                </div>
+            </div>
+
+            <!-- Streak & Timer Badge -->
+            <div class="flex items-center gap-3">
+                <div class="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs font-semibold">
+                    <i class="fa-solid fa-fire"></i>
+                    <span>ต่อเนื่อง: <span id="streakText">0</span></span>
+                </div>
+                <button onclick="restartGame()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-medium text-slate-200 transition">
+                    <i class="fa-solid fa-rotate-right mr-1"></i> เริ่มใหม่
+                </button>
+            </div>
+        </div>
+
+        <!-- AR Stage Canvas & Overlay Display -->
+        <div class="relative w-full aspect-video max-h-[620px] bg-slate-950 rounded-3xl overflow-hidden border-2 border-slate-800 shadow-2xl flex items-center justify-center">
+            
+            <!-- Hidden Video Feed for MediaPipe -->
+            <video id="webcam" class="hidden" playsinline></video>
+
+            <!-- Rendered AR Canvas (Camera + Overlay) -->
+            <canvas id="arCanvas" class="w-full h-full object-cover mirror-video absolute inset-0"></canvas>
+
+            <!-- Status Indicator Overlay -->
+            <div id="handStatusBadge" class="absolute top-4 left-4 z-20 px-3 py-1.5 rounded-full bg-slate-900/80 backdrop-blur border border-slate-700 text-xs font-medium text-slate-300 flex items-center gap-2">
+                <span id="handStatusDot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span id="handStatusText">กำลังเชื่อมต่อระบบตรวจจับฝ่ามือ...</span>
+            </div>
+
+            <!-- Interactive Targets Overlay Layer -->
+            <div id="gameInteractiveOverlay" class="absolute inset-0 z-10 p-4 md:p-8 flex flex-col justify-between pointer-events-none">
+                
+                <!-- Central Animal Card / Question Display -->
+                <div class="flex justify-center w-full relative">
+                    <div id="questionBox" class="glass-panel rounded-2xl p-4 md:p-6 text-center max-w-lg w-full floating-anim shadow-2xl border border-emerald-500/30">
+                        <div id="animalEmoji" class="text-5xl md:text-6xl mb-2 drop-shadow-lg">🐘</div>
+                        <h3 id="animalName" class="text-2xl md:text-3xl font-extrabold text-white mb-1">ช้าง (Elephant)</h3>
+                        <p id="questionHint" class="text-xs md:text-sm text-emerald-300 font-medium">จัดอยู่ในกลุ่มสัตว์ประเภทใด?</p>
+                    </div>
+
+                    <!-- Quick Instant Feedback Overlay -->
+                    <div id="feedbackBadge" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 px-6 py-3 rounded-2xl text-xl font-extrabold shadow-2xl transition-all duration-200 opacity-0 scale-75 pointer-events-none backdrop-blur-md border flex items-center gap-2">
+                        <span id="feedbackIcon"></span>
+                        <span id="feedbackText"></span>
+                    </div>
+                </div>
+
+                <!-- Answer Target Zones (Dynamic Layout) -->
+                <div id="answerZonesContainer" class="grid grid-cols-2 gap-4 md:gap-8 w-full mt-auto">
+                    
+                    <!-- Left Answer Zone (Vertebrate) -->
+                    <div id="targetLeft" data-answer="vertebrate" class="target-zone pointer-events-auto glass-panel hover:bg-emerald-950/40 border-2 border-emerald-500/40 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center transition-all duration-300 relative overflow-hidden group">
+                        <div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl md:text-3xl mb-2 group-hover:scale-110 transition">
+                            🦴
+                        </div>
+                        <h4 id="leftTargetTitle" class="text-base md:text-xl font-bold text-emerald-300 text-center">สัตว์มีกระดูกสันหลัง</h4>
+                        <p id="leftTargetDesc" class="text-[10px] md:text-xs text-slate-400 text-center mt-1 hidden md:block">มีแกนกระดูกแข็งรองรับร่างกาย</p>
+
+                        <!-- Hover Visual Progress Circle -->
+                        <div class="progress-indicator absolute inset-0 bg-emerald-500/20 origin-left scale-x-0 transition-transform duration-75"></div>
+                    </div>
+
+                    <!-- Right Answer Zone (Invertebrate) -->
+                    <div id="targetRight" data-answer="invertebrate" class="target-zone pointer-events-auto glass-panel hover:bg-amber-950/40 border-2 border-amber-500/40 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center transition-all duration-300 relative overflow-hidden group">
+                        <div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 text-2xl md:text-3xl mb-2 group-hover:scale-110 transition">
+                            🪼
+                        </div>
+                        <h4 id="rightTargetTitle" class="text-base md:text-xl font-bold text-amber-300 text-center">สัตว์ไม่มีกระดูกสันหลัง</h4>
+                        <p id="rightTargetDesc" class="text-[10px] md:text-xs text-slate-400 text-center mt-1 hidden md:block">ไม่มีโครงกระดูกแข็งภายใน</p>
+
+                        <!-- Hover Visual Progress Circle -->
+                        <div class="progress-indicator absolute inset-0 bg-amber-500/20 origin-left scale-x-0 transition-transform duration-75"></div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <div id="explanationModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur hidden">
+        <div class="max-w-md w-full bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-6 text-center shadow-2xl relative transform transition-all duration-300">
+            <div id="resultBadgeIcon" class="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-3xl flex items-center justify-center mx-auto mb-3">
+                <i class="fa-solid fa-check"></i>
+            </div>
+            
+            <h3 id="resultTitle" class="text-2xl font-bold text-white mb-2">ถูกต้องแล้ว! 🎉</h3>
+            
+            <div class="bg-slate-800/80 rounded-2xl p-4 text-left border border-slate-700/60 mb-5">
+                <div class="flex items-center gap-3 mb-2">
+                    <span id="modalAnimalEmoji" class="text-3xl">🐘</span>
+                    <div>
+                        <h4 id="modalAnimalName" class="font-bold text-emerald-300">ช้าง</h4>
+                        <span id="modalAnimalCategory" class="text-xs text-amber-400 font-semibold">สัตว์มีกระดูกสันหลัง (สัตว์เลี้ยงลูกด้วยนม)</span>
+                    </div>
+                </div>
+                <p id="modalExplanationText" class="text-xs md:text-sm text-slate-300 leading-relaxed">
+                    ช้างเป็นสัตว์มีกระดูกสันหลัง มีโครงกระดูกแข็งเป็นแกนกลาง ยึดเกาะกับกล้ามเนื้อ และจัดอยู่ในกลุ่มสัตว์เลี้ยงลูกด้วยนม
+                </p>
+            </div>
+
+            <button onclick="nextQuestion()" class="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-lg transition transform active:scale-95">
+                ข้อถัดไป <i class="fa-solid fa-arrow-right ml-1"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="summaryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur hidden">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center shadow-2xl">
+            <div class="w-20 h-20 rounded-full bg-gradient-to-tr from-amber-400 to-emerald-400 p-1 mx-auto mb-4">
+                <div class="w-full h-full bg-slate-900 rounded-full flex items-center justify-center text-amber-400 text-4xl">
+                    🏆
+                </div>
+            </div>
+
+            <h2 class="text-2xl font-extrabold text-white mb-1">เก่งมาก! ทำภารกิจสำเร็จ</h2>
+            <p class="text-xs text-slate-400 mb-6">ทบทวนบทเรียนเรื่องสัตว์มีกระดูกสันหลัง ป.4 เรียบร้อยแล้ว</p>
+
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <div class="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
+                    <span class="text-xs text-slate-400 block mb-1">คะแนนรวม</span>
+                    <span id="finalScore" class="text-2xl font-black text-amber-400">0</span>
+                </div>
+                <div class="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
+                    <span class="text-xs text-slate-400 block mb-1">ระดับความแม่นยำ</span>
+                    <span id="finalAccuracy" class="text-2xl font-black text-emerald-400">0%</span>
+                </div>
+            </div>
+
+            <div id="badgeReward" class="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3 mb-6 flex items-center gap-3 text-left">
+                <div class="text-3xl">🏅</div>
+                <div>
+                    <h4 class="text-xs font-bold text-emerald-300">ได้รับเหรียญตรา:</h4>
+                    <p id="badgeTitleText" class="text-sm font-extrabold text-white">นักชีววิทยารุ่นจิ๋ว ป.4</p>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="restartGame()" class="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition">
+                    เล่นอีกครั้ง 🔄
+                </button>
+                <button onclick="showLeaderboardModal()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition">
+                    ดูสกอร์บอร์ด 🏆
+                </button>
+                <button onclick="showStartScreen()" class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl border border-slate-700 transition">
+                    หน้าแรก 🏠
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div id="leaderboardModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur hidden">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center shadow-2xl relative">
+            <button onclick="closeLeaderboardModal()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <div class="flex items-center justify-center gap-2 text-amber-400 text-2xl font-bold mb-1">
+                <i class="fa-solid fa-trophy"></i>
+                <span>สกอร์บอร์ดอันดับคะแนน</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">ตารางคะแนนสูงสุด 10 อันดับแรก (คะแนนเต็ม 20)</p>
+
+            <div class="max-h-64 overflow-y-auto mb-5 rounded-2xl border border-slate-800 bg-slate-950/60 p-2">
+                <table class="w-full text-left text-xs">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-slate-400">
+                            <th class="p-2 text-center w-12">อันดับ</th>
+                            <th class="p-2">ชื่อผู้เล่น</th>
+                            <th class="p-2 text-center">โหมด</th>
+                            <th class="p-2 text-right">คะแนน</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboardTableBody" class="divide-y divide-slate-800/50">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="clearLeaderboard()" class="px-4 py-2 bg-slate-800 hover:bg-rose-900/40 text-rose-300 text-xs rounded-xl border border-rose-500/30 transition">
+                    ล้างประวัติ
+                </button>
+                <button onclick="closeLeaderboardModal()" class="flex-1 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition">
+                    ปิดหน้าต่าง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Particle Canvas for Effects -->
+    <canvas id="particleCanvas" class="fixed inset-0 z-40 pointer-events-none"></canvas>
+
+    <script>
+        /* ==========================================================================
+           1. DATABASE: Grade 4 Science Vertebrates & Invertebrates Data (20 Items)
+           ========================================================================== */
+        const ANIMAL_DATABASE = [
+            {
+                id: 'elephant',
+                name: 'ช้าง (Elephant)',
+                type: 'vertebrate',
+                subType: 'mammal',
+                subTypeName: 'สัตว์เลี้ยงลูกด้วยนม',
+                emoji: '🐘',
+                explanation: 'ช้างมีโครงกระดูกแข็งอยู่ภายในร่างกาย ช่วยค้ำจุนลำตัว และออกลูกเป็นตัว มีเต้านมเลี้ยงลูก'
+            },
+            {
+                id: 'jellyfish',
+                name: 'แมงกะพรุน (Jellyfish)',
+                type: 'invertebrate',
+                subType: 'cnidarian',
+                subTypeName: 'สัตว์ลำตัวกลวง',
+                emoji: '🪼',
+                explanation: 'แมงกะพรุนไม่มีโครงกระดูกแข็ง ลำตัวใสและนิ่ม มีเข็มพิษบริเวณหนวดไว้ป้องกันตัว'
+            },
+            {
+                id: 'frog',
+                name: 'กบ (Frog)',
+                type: 'vertebrate',
+                subType: 'amphibian',
+                subTypeName: 'สัตว์สะเทินน้ำสะเทินบก',
+                emoji: '🐸',
+                explanation: 'กบเป็นสัตว์มีกระดูกสันหลัง วางไข่ในน้ำ ตอนตัวอ่อนหายใจด้วยเหงือก ตัวโตเต็มวัยหายใจด้วยปอดและผิวหนัง'
+            },
+            {
+                id: 'crab',
+                name: 'ปูม้า (Crab)',
+                type: 'invertebrate',
+                subType: 'arthropod',
+                subTypeName: 'สัตว์มีขาเป็นข้อ',
+                emoji: '🦀',
+                explanation: 'ปูไม่มีกระดูกสันหลังภายใน แต่มีเปลือกแข็งหุ้มภายนอก (Exoskeleton) และมีขาเป็นข้อต่อ'
+            },
+            {
+                id: 'eagle',
+                name: 'นกอินทรี (Eagle)',
+                type: 'vertebrate',
+                subType: 'bird',
+                subTypeName: 'สัตว์ปีก',
+                emoji: '🦅',
+                explanation: 'นกอินทรีเป็นสัตว์มีกระดูกสันหลัง กระดูกกลวงเบา ร่างกายปกคลุมด้วยขนเป็นแผง หายใจด้วยปอดมีถุงลม'
+            },
+            {
+                id: 'earthworm',
+                name: 'ไส้เดือนดิน (Earthworm)',
+                type: 'invertebrate',
+                subType: 'annelid',
+                subTypeName: 'สัตว์ลำตัวเป็นปล้อง',
+                emoji: '🪱',
+                explanation: 'ไส้เดือนดินไม่มีโครงกระดูกแข็ง ลำตัวเป็นวงปล้องต่อกัน ชุ่มชื้นตลอดเวลาเพื่อใช้แลกเปลี่ยนแก๊ส'
+            },
+            {
+                id: 'crocodile',
+                name: 'จระเข้ (Crocodile)',
+                type: 'vertebrate',
+                subType: 'reptile',
+                subTypeName: 'สัตว์เลื้อยคลาน',
+                emoji: '🐊',
+                explanation: 'จระเข้เป็นสัตว์มีกระดูกสันหลัง เลือดเย็น มีเกล็ดแข็งปกคลุมลำตัวเพื่อลดการสูญเสียน้ำ'
+            },
+            {
+                id: 'starfish',
+                name: 'ดาวทะเล (Starfish)',
+                type: 'invertebrate',
+                subType: 'echinoderm',
+                subTypeName: 'สัตว์ผิวขรุขระมีหนาม',
+                emoji: '⭐',
+                explanation: 'ดาวทะเลไม่มีกระดูกสันหลัง มีผิวลำตัวขรุขระและหยาบ เคลื่อนที่โดยใช้ระบบท่อน้ำและเท้าท่อ'
+            },
+            {
+                id: 'fish',
+                name: 'ปลานิล (Tilapia)',
+                type: 'vertebrate',
+                subType: 'fish',
+                subTypeName: 'ปลา',
+                emoji: '🐟',
+                explanation: 'ปลาเป็นสัตว์มีกระดูกสันหลัง รูปร่างเพรียวยาว มีครีบช่วยในการว่ายน้ำ หายใจด้วยเหงือกตลอดชีวิต'
+            },
+            {
+                id: 'squid',
+                name: 'หมึกกล้วย (Squid)',
+                type: 'invertebrate',
+                subType: 'mollusk',
+                subTypeName: 'หอยและหมึก',
+                emoji: '🦑',
+                explanation: 'หมึกกล้วยไม่มีกระดูกสันหลัง ลำตัวนิ่ม มีแผ่นแกนลำตัวนิ่มอยู่ภายใน เคลื่อนที่โดยการพ่นน้ำ'
+            },
+            {
+                id: 'butterfly',
+                name: 'ผีเสื้อ (Butterfly)',
+                type: 'invertebrate',
+                subType: 'arthropod',
+                subTypeName: 'สัตว์มีขาเป็นข้อ (แมลง)',
+                emoji: '🦋',
+                explanation: 'ผีเสื้อเป็นสัตว์ไม่มีกระดูกสันหลัง ร่างกายแบ่งเป็น 3 ส่วน (หัว อก ท้อง) มีขา 6 ขา มีโครงร่างแข็งภายนอก'
+            },
+            {
+                id: 'turtle',
+                name: 'เต่าทะเล (Sea Turtle)',
+                type: 'vertebrate',
+                subType: 'reptile',
+                subTypeName: 'สัตว์เลื้อยคลาน',
+                emoji: '🐢',
+                explanation: 'เต่าทะเลเป็นสัตว์มีกระดูกสันหลัง ซึ่งกระดูกสันหลังและซี่โครงบางส่วนเชื่อมติดแน่นกับกระดอง'
+            },
+            {
+                id: 'dog',
+                name: 'สุนัข (Dog)',
+                type: 'vertebrate',
+                subType: 'mammal',
+                subTypeName: 'สัตว์เลี้ยงลูกด้วยนม',
+                emoji: '🐕',
+                explanation: 'สุนัขเป็นสัตว์มีกระดูกสันหลัง เลือดอุ่น ออกลูกเป็นตัว และเลี้ยงลูกด้วยน้ำนม'
+            },
+            {
+                id: 'dugong',
+                name: 'พะยูน (Dugong)',
+                type: 'vertebrate',
+                subType: 'mammal',
+                subTypeName: 'สัตว์เลี้ยงลูกด้วยนม',
+                emoji: '🦭',
+                explanation: 'พะยูนอาศัยอยู่ในน้ำแต่ออกลูกเป็นตัวและเลี้ยงลูกด้วยน้ำนม จึงจัดอยู่ในกลุ่มสัตว์เลี้ยงลูกด้วยนม'
+            },
+            {
+                id: 'snail',
+                name: 'หอยทาก (Snail)',
+                type: 'invertebrate',
+                subType: 'mollusk',
+                subTypeName: 'หอยและหมึก',
+                emoji: '🐌',
+                explanation: 'หอยทากไม่มีกระดูกสันหลัง ลำตัวนิ่ม มีเปลือกแข็งประกอบด้วยหินปูนสร้างขึ้นหุ้มลำตัว'
+            },
+            {
+                id: 'penguin',
+                name: 'เพนกวิน (Penguin)',
+                type: 'vertebrate',
+                subType: 'bird',
+                subTypeName: 'สัตว์ปีก',
+                emoji: '🐧',
+                explanation: 'เพนกวินเป็นสัตว์มีกระดูกสันหลัง ร่างกายปกคลุมด้วยขนเป็นแผง แม้จะบินไม่ได้แต่วางไข่และจัดเป็นสัตว์ปีก'
+            },
+            {
+                id: 'bullfrog',
+                name: 'อึ่งอ่าง (Bullfrog)',
+                type: 'vertebrate',
+                subType: 'amphibian',
+                subTypeName: 'สัตว์สะเทินน้ำสะเทินบก',
+                emoji: '🐸',
+                explanation: 'อึ่งอ่างมีกระดูกสันหลัง ผิวหนังเปียกชื้น ไม่มีเกล็ด วางไข่ในน้ำและเจริญเติบโตเปลี่ยนรูปร่าง'
+            },
+            {
+                id: 'seahorse',
+                name: 'ม้าน้ำ (Seahorse)',
+                type: 'vertebrate',
+                subType: 'fish',
+                subTypeName: 'ปลา',
+                emoji: '🐴',
+                explanation: 'ม้าน้ำเป็นปลาชนิดหนึ่ง มีกระดูกสันหลัง หายใจด้วยเหงือก และใช้ครีบในการทรงตัวในน้ำ'
+            },
+            {
+                id: 'sponge',
+                name: 'ฟองน้ำถูตัว (Sponge)',
+                type: 'invertebrate',
+                subType: 'porifera',
+                subTypeName: 'ฟองน้ำ',
+                emoji: '🧽',
+                explanation: 'ฟองน้ำเป็นสัตว์เกาะอยู่กับที่ ไม่มีกระดูกสันหลัง มีรูพรุนรอบลำตัวให้น้ำผ่านเข้าออก'
+            },
+            {
+                id: 'ant',
+                name: 'มดแดง (Ant)',
+                type: 'invertebrate',
+                subType: 'arthropod',
+                subTypeName: 'สัตว์มีขาเป็นข้อ (แมลง)',
+                emoji: '🐜',
+                explanation: 'มดเป็นสัตว์ไม่มีกระดูกสันหลัง มีขาเป็นข้อ 6 ขา มีเปลือกสารไคตินแข็งหุ้มลำตัวภายนอก'
+            }
+        ];
+
+        /* ==========================================================================
+           2. GLOBAL STATE & AUDIO SYNTHESIZER
+           ========================================================================== */
+        let currentGameMode = 'sorting'; // 'sorting' or 'quiz'
+        let inputMode = 'ar'; // 'ar' or 'mouse'
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let streak = 0;
+        let questionList = [];
+        let isAudioEnabled = true;
+        let isSpeechEnabled = true;
+        let currentPlayerName = 'ผู้เล่น';
+        let isProcessingAnswer = false; // Flag to lock fast double triggers
+        const TOTAL_QUESTIONS = 20;
+
+        // AR Hand Tracking Variables
+        let pointerX = 0;
+        let pointerY = 0;
+        let activeHoverTarget = null;
+        let hoverStartTime = null;
+        const HOVER_DURATION = 1400; // ms required to select target with palm
+
+        // Audio Context Synthesizer
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (!isAudioEnabled) return;
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'hover') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(480, audioCtx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.08);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.08);
+                } else if (type === 'correct') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                    osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+                    osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.35);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.35);
+                } else if (type === 'wrong') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(130, audioCtx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.25);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.25);
+                }
+            } catch (e) {
+                console.log('Audio playback error', e);
+            }
+        }
+
+        function speakText(text) {
+            if (!isSpeechEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'th-TH';
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        /* ==========================================================================
+           3. MEDIAPIPE HAND TRACKING & CANVAS RENDERER
+           ========================================================================== */
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('arCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        let camera = null;
+        let hands = null;
+
+        function initHandTracking() {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            hands.onResults(onHandResults);
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (inputMode === 'ar') {
+                        await hands.send({ image: videoElement });
+                    }
+                },
+                width: 1280,
+                height: 720
+            });
+
+            camera.start().then(() => {
+                updateHandStatus('ready', 'เปิดใช้งานกล้อง AR สำเร็จ! ชูฝ่ามือขึ้นมาได้เลย');
+            }).catch(err => {
+                console.warn("Camera permission denied or unavailable:", err);
+                updateHandStatus('error', 'ไม่พบกล้อง ใช้โหมดเมาส์/สัมผัสแทน');
+                inputMode = 'mouse';
+                updateInputModeUI();
+            });
+        }
+
+        function updateHandStatus(state, msg) {
+            const dot = document.getElementById('handStatusDot');
+            const text = document.getElementById('handStatusText');
+            text.innerText = msg;
+            if (state === 'ready') {
+                dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping";
+            } else if (state === 'tracking') {
+                dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+            } else {
+                dot.className = "w-2.5 h-2.5 rounded-full bg-amber-500";
+            }
+        }
+
+        function onHandResults(results) {
+            if (canvasElement.width !== canvasElement.clientWidth || canvasElement.height !== canvasElement.clientHeight) {
+                canvasElement.width = canvasElement.clientWidth;
+                canvasElement.height = canvasElement.clientHeight;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.image) {
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            }
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                updateHandStatus('tracking', 'พบฝ่ามือเรียบร้อย!');
+                const landmarks = results.multiHandLandmarks[0];
+
+                const wrist = landmarks[0];
+                const indexMcp = landmarks[5];
+                const pinkyMcp = landmarks[17];
+
+                const rawX = (wrist.x + indexMcp.x + pinkyMcp.x) / 3;
+                const rawY = (wrist.y + indexMcp.y + pinkyMcp.y) / 3;
+
+                pointerX = (1 - rawX) * window.innerWidth;
+                pointerY = rawY * window.innerHeight;
+
+                drawARPointer(rawX * canvasElement.width, rawY * canvasElement.height, canvasCtx);
+                checkARHoverCollision();
+
+            } else {
+                updateHandStatus('ready', 'กรุณาชูฝ่ามือให้อยู่ในระยะกล้อง');
+                resetHoverProgress();
+            }
+
+            canvasCtx.restore();
+        }
+
+        function drawARPointer(x, y, ctx) {
+            ctx.beginPath();
+            ctx.arc(x, y, 28, 0, 2 * Math.PI);
+            ctx.strokeStyle = '#34d399';
+            ctx.lineWidth = 4;
+            ctx.shadowColor = '#10b981';
+            ctx.shadowBlur = 15;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, 2 * Math.PI);
+            ctx.fillStyle = '#fbbf24';
+            ctx.fill();
+        }
+
+        /* ==========================================================================
+           4. GAME CONTROLLER & COLLISION LOGIC
+           ========================================================================== */
+        function checkARHoverCollision() {
+            const targets = document.querySelectorAll('.target-zone');
+            let hitTarget = null;
+
+            targets.forEach(target => {
+                const rect = target.getBoundingClientRect();
+                if (pointerX >= rect.left && pointerX <= rect.right &&
+                    pointerY >= rect.top && pointerY <= rect.bottom) {
+                    hitTarget = target;
+                }
+            });
+
+            if (hitTarget) {
+                if (activeHoverTarget !== hitTarget) {
+                    activeHoverTarget = hitTarget;
+                    hoverStartTime = Date.now();
+                    playSound('hover');
+                    hitTarget.classList.add('ar-active-zone');
+                } else {
+                    const elapsedTime = Date.now() - hoverStartTime;
+                    const progressRatio = Math.min(elapsedTime / HOVER_DURATION, 1.0);
+                    
+                    const progressIndicator = hitTarget.querySelector('.progress-indicator');
+                    if (progressIndicator) {
+                        progressIndicator.style.transform = `scaleX(${progressRatio})`;
+                    }
+
+                    if (elapsedTime >= HOVER_DURATION) {
+                        const selectedAnswer = hitTarget.getAttribute('data-answer');
+                        submitAnswer(selectedAnswer);
+                        resetHoverProgress();
+                    }
+                }
+            } else {
+                resetHoverProgress();
+            }
+        }
+
+        function resetHoverProgress() {
+            if (activeHoverTarget) {
+                activeHoverTarget.classList.remove('ar-active-zone');
+                const progressIndicator = activeHoverTarget.querySelector('.progress-indicator');
+                if (progressIndicator) {
+                    progressIndicator.style.transform = 'scaleX(0)';
+                }
+            }
+            activeHoverTarget = null;
+            hoverStartTime = null;
+        }
+
+        function startGame(mode = 'sorting') {
+            const nameInput = document.getElementById('playerNameInput');
+            currentPlayerName = nameInput.value.trim() || 'ผู้เล่นนิรนาม';
+            document.getElementById('displayPlayerName').innerText = currentPlayerName;
+
+            currentGameMode = mode;
+            score = 0;
+            streak = 0;
+            currentQuestionIndex = 0;
+            isProcessingAnswer = false;
+
+            questionList = [...ANIMAL_DATABASE].sort(() => Math.random() - 0.5).slice(0, TOTAL_QUESTIONS);
+
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('summaryModal').classList.add('hidden');
+            document.getElementById('explanationModal').classList.add('hidden');
+            document.getElementById('leaderboardModal').classList.add('hidden');
+
+            updateScoreUI();
+            setupCurrentQuestion();
+
+            if (!camera) {
+                initHandTracking();
+            }
+        }
+
+        function setupCurrentQuestion() {
+            const currentItem = questionList[currentQuestionIndex];
+            
+            document.getElementById('questionCountText').innerText = `${currentQuestionIndex + 1} / ${TOTAL_QUESTIONS}`;
+            document.getElementById('animalEmoji').innerText = currentItem.emoji;
+            document.getElementById('animalName').innerText = currentItem.name;
+
+            speakText(currentItem.name);
+
+            const answerZonesContainer = document.getElementById('answerZonesContainer');
+
+            if (currentGameMode === 'sorting') {
+                document.getElementById('questionHint').innerText = "ใช้ฝ่ามือเลือกประเภทของสัตว์ชนิดนี้";
+                
+                answerZonesContainer.className = "grid grid-cols-2 gap-4 md:gap-8 w-full mt-auto";
+                answerZonesContainer.innerHTML = `
+                    <div id="targetLeft" data-answer="vertebrate" onclick="onMouseClickAnswer('vertebrate')" class="target-zone cursor-pointer pointer-events-auto glass-panel hover:bg-emerald-950/50 border-2 border-emerald-500/40 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center transition duration-300 relative overflow-hidden group">
+                        <div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl md:text-3xl mb-2">
+                            🦴
+                        </div>
+                        <h4 class="text-base md:text-xl font-bold text-emerald-300 text-center">สัตว์มีกระดูกสันหลัง</h4>
+                        <p class="text-[10px] md:text-xs text-slate-400 text-center mt-1 hidden md:block">มีแกนกระดูกแข็งรองรับร่างกาย</p>
+                        <div class="progress-indicator absolute inset-0 bg-emerald-500/30 origin-left scale-x-0 transition-transform duration-75"></div>
+                    </div>
+
+                    <div id="targetRight" data-answer="invertebrate" onclick="onMouseClickAnswer('invertebrate')" class="target-zone cursor-pointer pointer-events-auto glass-panel hover:bg-amber-950/50 border-2 border-amber-500/40 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center transition duration-300 relative overflow-hidden group">
+                        <div class="w-12 h-12 md:w-16 md:h-16 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 text-2xl md:text-3xl mb-2">
+                            🪼
+                        </div>
+                        <h4 class="text-base md:text-xl font-bold text-amber-300 text-center">สัตว์ไม่มีกระดูกสันหลัง</h4>
+                        <p class="text-[10px] md:text-xs text-slate-400 text-center mt-1 hidden md:block">ไม่มีโครงกระดูกแข็งภายใน</p>
+                        <div class="progress-indicator absolute inset-0 bg-amber-500/30 origin-left scale-x-0 transition-transform duration-75"></div>
+                    </div>
+                `;
+            } else {
+                document.getElementById('questionHint').innerText = "ท้าทาย ป.4: ระบุกลุ่มย่อยของสัตว์ชนิดนี้ให้ถูกต้อง!";
+                
+                const allSubTypes = [
+                    { id: 'fish', name: 'กลุ่มปลา', icon: '🐟' },
+                    { id: 'amphibian', name: 'สัตว์สะเทินน้ำสะเทินบก', icon: '🐸' },
+                    { id: 'reptile', name: 'สัตว์เลื้อยคลาน', icon: '🐊' },
+                    { id: 'bird', name: 'สัตว์ปีก', icon: '🦅' },
+                    { id: 'mammal', name: 'สัตว์เลี้ยงลูกด้วยนม', icon: '🐘' },
+                    { id: 'invertebrate_group', name: 'สัตว์ไม่มีกระดูกสันหลัง', icon: '🦀' }
+                ];
+
+                const correctAnswer = currentItem.subType;
+                let choices = allSubTypes.filter(s => s.id === correctAnswer);
+                const distractors = allSubTypes.filter(s => s.id !== correctAnswer).sort(() => Math.random() - 0.5).slice(0, 3);
+                choices = choices.concat(distractors).sort(() => Math.random() - 0.5);
+
+                answerZonesContainer.className = "grid grid-cols-2 md:grid-cols-4 gap-3 w-full mt-auto";
+                answerZonesContainer.innerHTML = choices.map(choice => `
+                    <div data-answer="${choice.id}" onclick="onMouseClickAnswer('${choice.id}')" class="target-zone cursor-pointer pointer-events-auto glass-panel hover:bg-teal-950/50 border border-teal-500/40 rounded-2xl p-3 flex flex-col items-center justify-center transition duration-300 relative overflow-hidden">
+                        <span class="text-2xl mb-1">${choice.icon}</span>
+                        <h4 class="text-xs md:text-sm font-bold text-teal-200 text-center">${choice.name}</h4>
+                        <div class="progress-indicator absolute inset-0 bg-teal-500/30 origin-left scale-x-0 transition-transform duration-75"></div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function onMouseClickAnswer(answer) {
+            submitAnswer(answer);
+        }
+
+        function submitAnswer(userChoice) {
+            if (isProcessingAnswer) return;
+            isProcessingAnswer = true;
+
+            const currentItem = questionList[currentQuestionIndex];
+            let isCorrect = false;
+
+            if (currentGameMode === 'sorting') {
+                isCorrect = (userChoice === currentItem.type);
+            } else {
+                isCorrect = (userChoice === currentItem.subType || (currentItem.type === 'invertebrate' && userChoice === 'invertebrate_group'));
+            }
+
+            const feedbackBadge = document.getElementById('feedbackBadge');
+            const feedbackIcon = document.getElementById('feedbackIcon');
+            const feedbackText = document.getElementById('feedbackText');
+
+            if (isCorrect) {
+                score += 1;
+                streak++;
+                playSound('correct');
+                triggerConfetti();
+
+                feedbackBadge.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 px-6 py-3 rounded-2xl text-xl font-extrabold shadow-2xl transition-all duration-200 opacity-100 scale-100 pointer-events-none backdrop-blur-md border bg-emerald-500/95 text-slate-950 border-emerald-300 flex items-center gap-2";
+                feedbackIcon.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+                feedbackText.innerText = "ถูกต้อง! +1 🎉";
+            } else {
+                streak = 0;
+                playSound('wrong');
+
+                feedbackBadge.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 px-6 py-3 rounded-2xl text-xl font-extrabold shadow-2xl transition-all duration-200 opacity-100 scale-100 pointer-events-none backdrop-blur-md border bg-rose-500/95 text-white border-rose-300 flex items-center gap-2";
+                feedbackIcon.innerHTML = '<i class="fa-solid fa-circle-xmark"></i>';
+                feedbackText.innerText = "ยังไม่ถูกต้อง ❌";
+            }
+
+            updateScoreUI();
+
+            setTimeout(() => {
+                feedbackBadge.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 px-6 py-3 rounded-2xl text-xl font-extrabold shadow-2xl transition-all duration-200 opacity-0 scale-75 pointer-events-none backdrop-blur-md border flex items-center gap-2";
+                resetHoverProgress();
+
+                currentQuestionIndex++;
+                if (currentQuestionIndex < questionList.length) {
+                    setupCurrentQuestion();
+                } else {
+                    showSummaryModal();
+                }
+                isProcessingAnswer = false;
+            }, 450);
+        }
+
+        function showSummaryModal() {
+            document.getElementById('summaryModal').classList.remove('hidden');
+            document.getElementById('finalScore').innerText = `${score} / ${TOTAL_QUESTIONS}`;
+
+            const accuracy = Math.round((score / TOTAL_QUESTIONS) * 100);
+            document.getElementById('finalAccuracy').innerText = `${accuracy}%`;
+
+            const badgeText = document.getElementById('badgeTitleText');
+            if (score >= 18) {
+                badgeText.innerText = "🌟 ยอดนักชีววิทยา ป.4 พิชิต AR";
+            } else if (score >= 12) {
+                badgeText.innerText = "🌿 นักสำรวจธรรมชาติตัวน้อย";
+            } else {
+                badgeText.innerText = "📚 ผู้เริ่มต้นเรียนรู้โลกสัตว์";
+            }
+
+            saveScoreToLeaderboard(currentPlayerName, score, currentGameMode);
+        }
+
+        /* Leaderboard Management Functions */
+        function saveScoreToLeaderboard(name, scoreVal, mode) {
+            let leaderboard = [];
+            try {
+                leaderboard = JSON.parse(localStorage.getItem('ar_vertebrate_leaderboard')) || [];
+            } catch (e) {
+                leaderboard = [];
+            }
+
+            const newEntry = {
+                name: name,
+                score: scoreVal,
+                mode: mode === 'sorting' ? 'คัดแยกสัตว์' : '5 กลุ่มย่อย',
+                date: new Date().toLocaleDateString('th-TH')
+            };
+
+            leaderboard.push(newEntry);
+            leaderboard.sort((a, b) => b.score - a.score);
+            leaderboard = leaderboard.slice(0, 10);
+
+            try {
+                localStorage.setItem('ar_vertebrate_leaderboard', JSON.stringify(leaderboard));
+            } catch (e) {
+                console.error('Could not save to localStorage', e);
+            }
+        }
+
+        function showLeaderboardModal() {
+            renderLeaderboard();
+            document.getElementById('leaderboardModal').classList.remove('hidden');
+        }
+
+        function closeLeaderboardModal() {
+            document.getElementById('leaderboardModal').classList.add('hidden');
+        }
+
+        function renderLeaderboard() {
+            let leaderboard = [];
+            try {
+                leaderboard = JSON.parse(localStorage.getItem('ar_vertebrate_leaderboard')) || [];
+            } catch (e) {
+                leaderboard = [];
+            }
+
+            const tbody = document.getElementById('leaderboardTableBody');
+            if (leaderboard.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500">ยังไม่มีข้อมูลคะแนน</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = leaderboard.map((item, index) => {
+                let rankBadge = `${index + 1}`;
+                if (index === 0) rankBadge = '🥇';
+                else if (index === 1) rankBadge = '🥈';
+                else if (index === 2) rankBadge = '🥉';
+
+                return `
+                    <tr class="hover:bg-slate-800/40">
+                        <td class="p-2 text-center font-bold text-amber-400">${rankBadge}</td>
+                        <td class="p-2 font-medium text-white">${item.name}</td>
+                        <td class="p-2 text-center text-[10px] text-slate-400">${item.mode}</td>
+                        <td class="p-2 text-right font-extrabold text-emerald-400">${item.score}/20</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function clearLeaderboard() {
+            if (confirm('คุณต้องการล้างประวัติสกอร์บอร์ดทั้งหมดใช่หรือไม่?')) {
+                localStorage.removeItem('ar_vertebrate_leaderboard');
+                renderLeaderboard();
+            }
+        }
+
+        function updateScoreUI() {
+            document.getElementById('scoreText').innerText = score;
+            document.getElementById('streakText').innerText = streak;
+        }
+
+        function showStartScreen() {
+            document.getElementById('startScreen').classList.remove('hidden');
+            document.getElementById('summaryModal').classList.add('hidden');
+        }
+
+        function restartGame() {
+            startGame(currentGameMode);
+        }
+
+        /* ==========================================================================
+           5. AUDIO & INPUT MODE UTILITIES
+           ========================================================================== */
+        function toggleAudio() {
+            isAudioEnabled = !isAudioEnabled;
+            const icon = document.getElementById('audioIcon');
+            icon.className = isAudioEnabled ? "fa-solid fa-volume-high text-emerald-400" : "fa-solid fa-volume-xmark text-slate-500";
+        }
+
+        function toggleSpeech() {
+            isSpeechEnabled = !isSpeechEnabled;
+            const icon = document.getElementById('speechIcon');
+            icon.className = isSpeechEnabled ? "fa-solid fa-comment-dots text-amber-400" : "fa-solid fa-comment-slash text-slate-500";
+        }
+
+        function toggleInputMode() {
+            inputMode = (inputMode === 'ar') ? 'mouse' : 'ar';
+            updateInputModeUI();
+        }
+
+        function updateInputModeUI() {
+            const icon = document.getElementById('modeIcon');
+            const text = document.getElementById('modeText');
+            if (inputMode === 'ar') {
+                icon.className = "fa-solid fa-camera text-xs";
+                text.innerText = "โหมดฝ่ามือ AR";
+                updateHandStatus('ready', 'กำลังเปิดใช้งานระบบฝ่ามือ AR');
+            } else {
+                icon.className = "fa-solid fa-mouse-pointer text-xs";
+                text.innerText = "โหมดเมาส์ / Touch";
+                updateHandStatus('disabled', 'เปลี่ยนเป็นโหมดคลิกเมาส์/สัมผัสจอ');
+            }
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (inputMode === 'mouse') {
+                pointerX = e.clientX;
+                pointerY = e.clientY;
+            }
+        });
+
+        /* ==========================================================================
+           6. PARTICLE CONFETTI ANIMATION SYSTEM
+           ========================================================================== */
+        const pCanvas = document.getElementById('particleCanvas');
+        const pCtx = pCanvas.getContext('2d');
+        let particles = [];
+
+        function triggerConfetti() {
+            pCanvas.width = window.innerWidth;
+            pCanvas.height = window.innerHeight;
+            const colors = ['#34d399', '#fbbf24', '#38bdf8', '#f472b6', '#a78bfa'];
+
+            for (let i = 0; i < 60; i++) {
+                particles.push({
+                    x: window.innerWidth / 2,
+                    y: window.innerHeight / 2,
+                    vx: (Math.random() - 0.5) * 14,
+                    vy: (Math.random() - 0.7) * 14,
+                    size: Math.random() * 8 + 4,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    alpha: 1.0,
+                    gravity: 0.25
+                });
+            }
+        }
+
+        function animateParticles() {
+            pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+            particles.forEach((p, index) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += p.gravity;
+                p.alpha -= 0.015;
+
+                pCtx.beginPath();
+                pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                pCtx.fillStyle = p.color;
+                pCtx.globalAlpha = Math.max(p.alpha, 0);
+                pCtx.fill();
+
+                if (p.alpha <= 0) particles.splice(index, 1);
+            });
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+    </script>
+</body>
+</html>
